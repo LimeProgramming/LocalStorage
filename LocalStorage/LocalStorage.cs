@@ -6,11 +6,18 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using FrooxEngine;
 using FrooxEngine.UIX;
+using FrooxEngine.Store;
 using Elements.Core;
 using System.IO;
 using Newtonsoft.Json;
 using System.Text;
 using System.Text.RegularExpressions;
+//using SkyFrost.Base.Models;
+//using SkyFrost.Base;
+using FrooxEngine.ProtoFlux;
+using System.Runtime.CompilerServices;
+using System.Xml.Linq;
+using System.Runtime.InteropServices.ComTypes;
 
 namespace LocalStorage
 {
@@ -18,8 +25,8 @@ namespace LocalStorage
     {
         public override string Name => "LocalStorage";
         public override string Author => "CalamityLime";
-        public override string Version => "2.0.3";
-        public override string Link => "https://youtu.be/dQw4w9WgXcQ";
+        public override string Version => "2.1.4";
+        public override string Link => "https://github.com/LimeProgramming/LocalStorage";
 
 
 
@@ -36,9 +43,9 @@ namespace LocalStorage
 
         // ===== Record Path
         [AutoRegisterConfigKey]
-        private static readonly ModConfigurationKey<string> REC_PATH_KEY = new ModConfigurationKey<string>( 
-            "record_path", "The path in which records will be stored. Changing this setting requires a game restart to apply.", 
-            () => Path.Combine(Engine.Current.LocalDB.PermanentPath, "LocalStorage", "Records") 
+        private static readonly ModConfigurationKey<string> REC_PATH_KEY = new ModConfigurationKey<string>(
+            "record_path", "The path in which records will be stored. Changing this setting requires a game restart to apply.",
+            () => Path.Combine(Engine.Current.LocalDB.PermanentPath, "LocalStorage", "Records")
         );
 
         // ===== Data Path
@@ -78,8 +85,8 @@ namespace LocalStorage
             var unsafePath = Path.GetFullPath(path + Uri.UnescapeDataString(uri.AbsolutePath)).Replace('\\', '/'); ;
             if (unsafePath.StartsWith(path))
             {
-                if (File.Exists(unsafePath))    { return unsafePath; }
-                else                            { return null; }
+                if (File.Exists(unsafePath)) { return unsafePath; }
+                else { return null; }
             }
             else
             {
@@ -93,7 +100,7 @@ namespace LocalStorage
         // Strip out invailid characters to make the Resonite item more likely to save correctly.
 
         // --- Blacklist of chars which you cannot have in file names
-        private static readonly char[] blacklist = { '<', '>', '"', '\'', '\\', '/', '%', '{', '}', '*', '?', ':', '|'};
+        private static readonly char[] blacklist = { '<', '>', '"', '\'', '\\', '/', '%', '{', '}', '*', '?', ':', '|' };
 
         // --- Define the regular expression pattern to match emojis
         private static readonly string emojiPattern = @"\p{So}";
@@ -111,9 +118,9 @@ namespace LocalStorage
             foreach (char c in input)
             {
                 // = If the character not in blacklist, then append to result string
-                if (Array.IndexOf(blacklist, c) == -1) 
-                { 
-                    builder.Append(c); 
+                if (Array.IndexOf(blacklist, c) == -1)
+                {
+                    builder.Append(c);
                 }
             }
 
@@ -235,7 +242,7 @@ namespace LocalStorage
             // Appearently there is a button for this somewhere. 
             [HarmonyPatch("ShowInventoryOwners")]
             [HarmonyPrefix]
-            public static bool ShowInventoriesPrefix(InventoryBrowser __instance)
+            public static bool ShowInventoriesPrefix(InventoryBrowser __instance, ButtonEventData eventData)
             {
                 if (!HIDE_LOCAL && __instance.Engine.Cloud.CurrentUser == null && __instance.CurrentDirectory.OwnerId != LOCAL_OWNER && __instance.World.IsUserspace())
                 {
@@ -261,7 +268,6 @@ namespace LocalStorage
                     var builder = __result;
                     builder.NestInto(folders.Slot);
 
-                    //var colour = MathX.Lerp(new Elements.Core.colorX(0.419608f, 0.725490f, 0.996078f), colorX.Black, 0.5f);
                     var colour = MathX.Lerp(new Elements.Core.colorX(0.95683f, 0.529411f, 0.529411f), colorX.Black, 0.5f);
 
                     var openFunc = (ButtonEventHandler<string>)AccessTools.Method(typeof(InventoryBrowser), "OpenInventory").CreateDelegate(typeof(ButtonEventHandler<string>), __instance);
@@ -284,8 +290,8 @@ namespace LocalStorage
             [HarmonyPostfix]
             public static void OnCommonUpdate(InventoryBrowser __instance)
             {
-                if (HIDE_LOCAL &&
-                    !__instance.World.IsUserspace()
+                if (HIDE_LOCAL 
+                    && !__instance.World.IsUserspace()
                     && __instance.CurrentDirectory != null
                     && __instance.CurrentDirectory.OwnerId == LOCAL_OWNER)
                 {
@@ -293,7 +299,6 @@ namespace LocalStorage
                 }
             }
         }
-
 
         // TODO: Test on linux
         // High chance it breaks because the resonite inventory uses backslashes internally
@@ -343,7 +348,7 @@ namespace LocalStorage
 
                         foreach (string dir in Directory.EnumerateDirectories(clean_p))
                         {
-                            var dirRec = SkyFrost.Base.RecordHelper.CreateForDirectory<FrooxEngine.Store.Record>(LOCAL_OWNER, path, Path.GetFileNameWithoutExtension(dir));
+                            var dirRec = SkyFrost.Base.RecordHelper.CreateForDirectory<Record>(LOCAL_OWNER, path, Path.GetFileNameWithoutExtension(dir));
                             subdirs.Add(new RecordDirectory(dirRec, __instance, __instance.Engine));
                         }
 
@@ -356,7 +361,7 @@ namespace LocalStorage
 
                             var fs = File.ReadAllText(file);
                             // Json parsing is difficult, ok, => ok!
-                            var record = JsonConvert.DeserializeObject<SkyFrost.Base.Record>(fs);
+                            var record = JsonConvert.DeserializeObject<FrooxEngine.Store.Record>(fs);
 
                             garbo.RecordId = record.RecordId;
                             garbo.OwnerId = record.OwnerId;
@@ -383,10 +388,29 @@ namespace LocalStorage
                             garbo.MigrationMetadata = record.MigrationMetadata;
                             garbo.AssetManifest = record.AssetManifest;
 
-                            if (garbo.RecordType == "link")
+                            /*
+                            if (garbo.RecordType == "world")
+                            {
+                                garbo.IsSynced = true;
+                                garbo.Version = new RecordVersion(30, 30, "U-Calamity-Lime", "8fe6g6nz7dxh5ig9qgrejkh68b66x8hq8wmsgqc73yi6wqtdzdty");
+                                garbo.FetchedOn = DateTime.UtcNow;
+                                garbo.OwnerId = "U-LocalStorage";
+                                //garbo.CombinedRecordId = new RecordId(record.OwnerId, record.RecordId);
+
+                            }
+                            else
+                            {
+                                garbo.Version = record.Version;
+                            }
+                            */
+
+
+                            if (garbo.RecordType == "link" || garbo.RecordType == "directory")
                             {
                                 subdirs.Add(new RecordDirectory(garbo, __instance, __instance.Engine));
-                            } else {
+                            }
+                            else
+                            {
                                 recs.Add(garbo);
                             }
                         }
@@ -432,7 +456,15 @@ namespace LocalStorage
                     // --- Record Store : Path written to FrooxEngine.Store.Record so Resonite knows where the thumbnail is
                     string thumbLocalPath = "lstorethumb:///" + fixedCRPath + "/" + recordname + Path.GetExtension(thumbnail.ToString());
 
+                    // ========================================
+                    // --- Test if thumblocalpath exists
+                    // --- just to help mitigate an issue if player used the orginal local storage mod. 
+                    if(!(Directory.Exists(Path.Combine(THUMB_PATH, fixedCRPath))))
+                    {
+                        Directory.CreateDirectory(Path.Combine(THUMB_PATH, fixedCRPath));
+                    }
 
+                    
                     // ========================================
                     // --- Write message to Resonite logs, which you should delete regularly because the staff leave them build up adding bloat to the install dir
                     // --- as well as having a history of including data which should not be included in logs such as your user token which would allow someone to 
@@ -467,7 +499,7 @@ namespace LocalStorage
                         var thumbStream = thumbTask.Result;
                         var thumbFile = File.Create(thumbPath);
                         thumbStream.CopyTo(thumbFile);
-                        thumbFile.Flush(); 
+                        thumbFile.Flush();
                         thumbFile.Dispose();
                     }
 
@@ -515,10 +547,10 @@ namespace LocalStorage
                     name = StripInvalidCharacters(name);
 
                     // --- Throw error if new folder name has no characters
-                    if (name.Length <= 0)   { throw new Exception("Subdirectory with name '" + name + "' already exists."); }
+                    if (name.Length <= 0) { throw new Exception("Subdirectory with name '" + name + "' already exists."); }
 
                     // --- Local Store : Data Path store
-                    string recDirLoc   = Path.Combine(REC_PATH, fixedCRPath, name);
+                    string recDirLoc = Path.Combine(REC_PATH, fixedCRPath, name);
 
                     // --- If the dir already exists, throw toys out of the parm and have a good cry
                     if (Directory.Exists(recDirLoc)) { throw new Exception("Subdirectory with name '" + name + "' already exists."); }
@@ -723,7 +755,24 @@ namespace LocalStorage
         /*
          * World saving stuff, currently completely broken
          * 
-         
+         */
+
+        /*
+        public static SessionThumbnailData GetThumbnailData(World world)
+        {
+            if (world == null)
+            {
+                return null;
+            }
+
+            lock (_sessionsThumbnailData)
+            {
+                _sessionsThumbnailData.TryGetValue(world, out var value);
+                return value;
+            }
+        }
+
+        
         [HarmonyPatch(typeof(Userspace))]
         class UserspacePatch
         {
@@ -731,7 +780,7 @@ namespace LocalStorage
             [HarmonyPrefix]
             public static bool SaveWorldTaskIntern(World world, FrooxEngine.Store.Record record, RecordOwnerTransferer transferer, ref Task<FrooxEngine.Store.Record> __result, Userspace __instance)
             {
-                if(record.OwnerId == LOCAL_OWNER)
+                if (record.OwnerId == LOCAL_OWNER)
                 {
                     __result = Task.Run(() =>
                     {
@@ -772,7 +821,7 @@ namespace LocalStorage
 
 
                         // SavedGraph savedGraph = await completionSource.Task.ConfigureAwait(false);
-                        var t0 = completionSource.Task; 
+                        var t0 = completionSource.Task;
                         t0.Wait();
                         SavedGraph savedGraph = t0.Result;
 
@@ -781,6 +830,9 @@ namespace LocalStorage
                         //await default(ToBackground);
 
                         FrooxEngine.Store.Record result;
+
+
+
 
                         try
                         {
@@ -795,7 +847,12 @@ namespace LocalStorage
                             IWorldLink sourceLink = world.SourceLink;
                             var t3 = dataTreeSaver.SaveLocally(graph2, (sourceLink != null) ? sourceLink.URL : null); t0.Wait();
                             Uri uri = t3.Result;
-                            Debug(uri);
+
+
+
+                            Msg("t3: " + t3.Result);
+                            Msg("uri: " + uri);
+
                             if (!record.IsPublic)
                             {
                                 World parent = world.Parent;
@@ -812,6 +869,7 @@ namespace LocalStorage
                                 bool? flag2 = flag;
                                 record.IsPublic = flag2.GetValueOrDefault();
                             }
+
                             record.Name = _name;
                             record.Description = _description;
                             record.Tags = _tags;
@@ -825,37 +883,129 @@ namespace LocalStorage
                                 world.SourceURL = sourceURL;
                             }
 
-                            string worldInfo = string.Format("Name: {0}. RecordId: {1}:{2}. Local: {3}, Global: {4}", new object[] 
-                            { 
-                                record.Name, 
-                                record.OwnerId, 
-                                record.RecordId, 
-                                record.Version.LocalVersion, 
-                                record.Version.GlobalVersion 
+                            string worldInfo = string.Format("Name: {0}. RecordId: {1}:{2}. Local: {3}, Global: {4}", new object[]
+                            {
+                                record.Name,
+                                record.OwnerId,
+                                record.RecordId,
+                                record.Version.LocalVersion,
+                                record.Version.GlobalVersion
                             });
 
-                            string p = Path.Combine(DATA_PATH, record.Path.Replace('\\', '/'), (record.Name + ".json"));
+                            Msg("srcurl: " + sourceURL);
+                            Msg("world info: " + worldInfo);
+                            string dpath;
+                            string rpath;
+
+
+
+                            string savename = ToShorterGUID(record.RecordId.Substring(2));
+
+                            if (world.Engine is Engine)
+                            {
+
+                            }
+
+                            //world.
+
+                            //var recPath = Path.Combine(REC_PATH, record.Path.Replace('\\', '/'), savename + ".json");
+
+                            if (record.Path == null)
+                            {
+                                dpath = new FileInfo(Path.Combine(DATA_PATH, "Inventory", savename + ".json")).FullName;
+                                rpath = new FileInfo(Path.Combine(REC_PATH, "Inventory", savename + ".json")).FullName;
+                            }
+                            else
+                            {
+                                dpath = new FileInfo(Path.Combine(DATA_PATH, record.Path, savename + ".json")).FullName;
+                                rpath = new FileInfo(Path.Combine(REC_PATH, record.Path, savename + ".json")).FullName;
+                            }
+
+                            //FileInfo
+                            Msg("I am a dpath: " + dpath);
+                            Msg("I am a rpath: " + rpath);
+
+
+                            //p = p.Replace('\\', '/');
 
                             //graph2
 
-                            Msg(record.Path);
+                            //Msg(record.Path);
 
                             //DataTreeConverter.Save(graph.Root, p + ".json");
 
+                            //sdsdsdsdsd
+                            //DataTreeConverter.Save(graph2.Root, dpath, DataTreeConverter.Compression.Brotli);
 
-                            DataTreeConverter.Save(graph2.Root, p, DataTreeConverter.Compression.LZ4);
-
-                            AccessTools.Method(typeof(DataTreeConverter), "Write", null, null).Invoke(null, new object[] { dataTreeDir, wr });
+                            //Write
 
 
-                            var recPath = Path.Combine(REC_PATH, record.Path.Replace('\\', '/'), record.Name + ".json");
-                            using (var fs = File.CreateText(recPath))
+                            // ========================================
+                            // --- Write Data to our Local Store
+                            using (StreamWriter fs = File.CreateText(dpath))
+                            {
+                                JsonTextWriter wr = new JsonTextWriter(fs);
+                                wr.Indentation = 2;
+                                wr.Formatting = Newtonsoft.Json.Formatting.Indented;
+                                AccessTools.Method(typeof(DataTreeConverter), "Write", null, null).Invoke(null, new object[] { graph2.Root, wr });
+                            }
+
+                            //AccessTools.Method(typeof(DataTreeConverter), nameof(DataTreeConverter.ToBRSON), null, null).Invoke(null, new object[] { graph2.Root, wr, 9 });
+
+
+                            //AccessTools.Method(typeof(DataTreeConverter), "Write", null, null).Invoke(null, new object[] { dataTreeDir, wr });
+
+
+                            //var recPath = Path.Combine(REC_PATH, record.Path.Replace('\\', '/'), record.Name + ".json");
+
+
+
+
+                            //var rec = SkyFrost.Base.RecordHelper.CreateForObject<global::FrooxEngine.Store.Record>(name, __instance.OwnerId, fileLocalPath, thumbLocalPath, record.RecordId);
+
+
+
+                            //var recPath = Path.Combine(REC_PATH, record.Path.Replace('\\', '/'), savename + ".json");
+                            using (var fs = File.CreateText(rpath))
                             {
                                 JsonSerializer serializer = new JsonSerializer();
                                 serializer.Formatting = Formatting.Indented;
                                 serializer.Serialize(fs, record);
                             }
 
+                            /*
+                            TaskAwaiter<RecordManager.RecordSaveResult> taskAwaiter = base.Engine.RecordManager.SaveRecord(record, graph).GetAwaiter();
+                            if (!taskAwaiter.IsCompleted)
+                            {
+                                await taskAwaiter;
+                                TaskAwaiter<RecordManager.RecordSaveResult> taskAwaiter2;
+                                taskAwaiter = taskAwaiter2;
+                                taskAwaiter2 = default(TaskAwaiter<RecordManager.RecordSaveResult>);
+                            }*/
+
+
+                            /*
+                            TaskAwaiter<RecordManager.RecordSaveResult> taskAwaiter = base.Engine.RecordManager.SaveRecord(record, graph).GetAwaiter();
+                            if (!taskAwaiter.IsCompleted)
+                            {
+                                await taskAwaiter;
+                                TaskAwaiter<RecordManager.RecordSaveResult> taskAwaiter2;
+                                taskAwaiter = taskAwaiter2;
+                                taskAwaiter2 = default(TaskAwaiter<RecordManager.RecordSaveResult>);
+                            }
+                            if (!taskAwaiter.GetResult().saved)
+                            {
+                                UniLog.Error("Error saving the record! " + worldInfo, true);
+                            }
+                            else
+                            {
+                                UniLog.Log("World Saved! " + worldInfo, false);
+                            }
+                            ----
+
+
+
+                            //throw new Exception();
                             result = record;
 
 
@@ -869,14 +1019,15 @@ namespace LocalStorage
                                 taskAwaiter2 = default(TaskAwaiter<RecordManager.RecordSaveResult>);
                             }
                             if (!taskAwaiter.GetResult().saved)
-                            //
+                            // ------
 
 
                         }
                         catch (Exception ex)
                         {
-                            string tempFilePath = __instance.Engine.LocalDB.GetTempFilePath(".lz4bson");
-                            DataTreeConverter.Save(graph.Root, tempFilePath, DataTreeConverter.Compression.LZ4);
+                            string tempFilePath = __instance.Engine.LocalDB.GetTempFilePath(".brson");
+                            Msg(tempFilePath);
+                            DataTreeConverter.Save(graph.Root, tempFilePath, DataTreeConverter.Compression.Brotli);
                             Error(string.Concat(new string[]
                             {
                                 "Exception in the save process for ",
@@ -896,7 +1047,8 @@ namespace LocalStorage
             }
         }
         [HarmonyPatch(typeof(RecordOwnerTransferer))]
-        class TransererPatch{
+        class TransererPatch
+        {
             [HarmonyPatch("ShouldProcess")]
             [HarmonyPrefix]
             public static bool ShouldTransfer(string ownerId, string recordId, RecordOwnerTransferer __instance)
@@ -908,6 +1060,29 @@ namespace LocalStorage
                 return true;
             }
         }
-        /**/
+
+        
+
+
+        [HarmonyPatch(typeof(SkyFrostInterface))]
+        class GetOwnerTypePatch
+        {
+            [HarmonyPatch(nameof(SkyFrostInterface.GetOwnerPath))]
+            [HarmonyPrefix]
+            public static bool GetOwnerPath(string ownerId, ref string __result)
+            {
+                if (ownerId.StartsWith("L-"))
+                {
+                    __result = "users";
+                    return false;
+                }
+
+                return true;
+            }
+
+        }
+        */
     }
+
+   
 }
